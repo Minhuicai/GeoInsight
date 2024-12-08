@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geo-Insight</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="icon" href="MH.png" type="image/png">
+    <style>
+        /* 固定顶部导航栏 */
+        #navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background-color: white;
+            color: black;
+            padding: 10px 20px;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #search-container {
+            display: flex;
+            align-items: center;
+            width: 60%;
+        }
+
+        #navbar input[type="text"] {
+            padding: 10px;
+            font-size: 16px;
+            width: 80%;
+            max-width: 400px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+
+        #navbar button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin-left: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #navbar button:hover {
+            background-color: #45a049;
+        }
+
+        /* logo */
+        #logo {
+            max-height: 40px;
+            position: absolute;
+            right: 180px;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            padding-top: 60px;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: row;
+            height: calc(100vh - 60px);
+        }
+
+        #map {
+            flex: 1;
+            height: 100%;
+        }
+
+        #charts {
+            width: 30%;
+            height: 100%;
+            background: white;
+            overflow-y: auto;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        canvas {
+            width: 100%;
+            height: 200px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding-top: 100px;
+            }
+            .container {
+                flex-direction: column;
+                height: auto;
+            }
+            #map {
+                height: 50vh;
+                width: 100%;
+            }
+            #charts {
+                width: 100%;
+                height: 50vh;
+                padding: 5px;
+            }
+        }
+
+        @media (min-width: 768px) and (max-width: 1024px) {
+            #map {
+                width: 60%;
+            }
+            #charts {
+                width: 40%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="navbar">
+        <div id="search-container">
+            <input type="text" id="searchInput" placeholder="Search your city here">
+            <button id="searchButton">Search</button>
+            <button id="toggleChartType" style="margin-left: 10px;">
+                切换到饼状图
+            </button>
+        </div>
+        <img id="logo" src="logo.png" alt="Logo">
+    </div>
+
+    <div class="container">
+        <div id="map"></div>
+        <div id="charts">
+            <canvas id="populationChart"></canvas>
+            <canvas id="areaChart"></canvas>
+            <canvas id="gdpChart"></canvas>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="./ZJ.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            let currentMarker = null; // 用于存储当前显示的标记            
+            
+            const map = L.map('map').setView([21.2662, 110.3653], 8);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            const defaultStyle = {
+                color: "#3388ff",
+                weight: 2,
+                opacity: 1,
+                fillColor: "#66ccff",
+                fillOpacity: 0.4
+            };
+
+            const highlightStyle = {
+                fillColor: "#F9E17D",
+                weight: 3,
+                color: "#FF9800",
+                fillOpacity: 0.7
+            };
+
+            let highlightedLayer = null;
+
+            const zhanjiangLayer = L.geoJSON(ZJ, {
+                style: defaultStyle,
+                onEachFeature: (feature, layer) => {
+                    layer.on('click', () => {
+                        toggleHighlight(layer, feature.properties.name);
+                        updateCharts(feature.properties.name);
+                    });
+                }
+            }).addTo(map);
+
+            map.fitBounds(zhanjiangLayer.getBounds());
+
+            function toggleHighlight(layer, name) {
+                if (highlightedLayer === layer) {
+                    zhanjiangLayer.resetStyle(layer);
+                    highlightedLayer = null;
+                } else {
+                    if (highlightedLayer) {
+                        zhanjiangLayer.resetStyle(highlightedLayer);
+                    }
+                    layer.setStyle(highlightStyle);
+                    highlightedLayer = layer;
+                }
+            }
+
+            const populationData = {
+                '赤坎区': 390300,
+                '霞山区': 536424,
+                '麻章区': 326154,
+                '吴川市': 907354,
+                '坡头区': 907354,
+                '雷州市': 1321091,
+                '徐闻县': 633258,
+                '遂溪县': 824608,
+                '廉江市': 1363470
+            };
+
+            const areaData = {
+                '赤坎区': 62,
+                '霞山区': 114,
+                '麻章区': 878,
+                '吴川市': 870,
+                '坡头区': 565,
+                '雷州市': 3709,
+                '徐闻县': 1980,
+                '遂溪县': 2132,
+                '廉江市': 2867
+            };
+
+            const gdpData = {
+                '赤坎区': 380.39,
+                '霞山区': 457.99,
+                '麻章区': 220.49,
+                '吴川市': 314.89,
+                '坡头区': 398.48,
+                '雷州市': 386.42,
+                '徐闻县': 255.02,
+                '遂溪县': 426.43,
+                '廉江市': 555.76
+            };
+
+                const areaCoordinates = {
+                '赤坎区': [21.2662, 110.3653],
+                '霞山区': [21.3333, 110.3377],
+                '麻章区': [21.2421, 110.3548],
+                '吴川市': [21.4133, 110.7791],
+                '坡头区': [21.2235, 110.3229],
+                '雷州市': [20.9274, 110.0872],
+                '徐闻县': [20.2887, 110.0853],
+                '遂溪县': [21.0153, 110.0721],
+                '廉江市': [21.1449, 110.2845]
+                };
+
+            function createChartConfig(label, data, xLabel, yLabel, type = 'bar') {
+                return {
+                    type: type,
+                    data: {
+                        labels: Object.keys(data),
+                        datasets: [{
+                            label: label,
+                            data: Object.values(data),
+                            backgroundColor: type === 'bar' ? 'rgba(75, 192, 192, 0.2)' : 'transparent',
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: label
+                            }
+                        },
+                        scales: {
+                            x: { title: { display: true, text: xLabel } },
+                            y: { title: { display: true, text: yLabel }, beginAtZero: true }
+                        },
+                        cutoutPercentage: type === 'pie' ? 50 : 0
+                    }
+                };
+            }
+
+            let currentChartType = 'bar';
+            let populationChart = new Chart(document.getElementById('populationChart').getContext('2d'), createChartConfig('湛江市各地区人口情况', populationData, '区县', '人口数', currentChartType));
+            let areaChart = new Chart(document.getElementById('areaChart').getContext('2d'), createChartConfig('湛江市各地区面积情况', areaData, '区县', '面积（平方千米）', currentChartType));
+            let gdpChart = new Chart(document.getElementById('gdpChart').getContext('2d'), createChartConfig('湛江市各地区生产总值', gdpData, '区县', 'GDP（亿元）', currentChartType));
+
+            function updateCharts(name) {
+                updateChartData(populationChart, populationData, name);
+                updateChartData(areaChart, areaData, name);
+                updateChartData(gdpChart, gdpData, name);
+            }
+
+            function updateChartData(chart, data, name) {
+                // 确保所有数据都保留，并且高亮点击区域的条形图
+                const highlightedData = Object.keys(data).map((key) => {
+                    return key === name ? '#F9E17D' : 'rgba(75, 192, 192, 0.2)';
+                });
+                chart.data.datasets[0].backgroundColor = highlightedData;
+                chart.update();
+            }
+
+            document.getElementById('searchButton').addEventListener('click', () => {
+            const searchValue = document.getElementById('searchInput').value.trim();
+
+            if (areaCoordinates[searchValue]) {
+                const coordinates = areaCoordinates[searchValue];
+                map.setView(coordinates, 12); // 设置地图视角并缩放到该区域
+
+                // 如果已经有标记，则移除现有标记
+                if (currentMarker) {
+                    map.removeLayer(currentMarker);
+                }
+
+                // 添加新的标记
+                currentMarker = L.marker(coordinates).addTo(map)
+                    .bindPopup(`${searchValue}`)
+                    .openPopup();
+
+                // 监听点击标记的事件，点击时移除标记
+                currentMarker.on('click', () => {
+                    map.removeLayer(currentMarker);
+                    currentMarker = null; // 清空当前标记
+                });
+            } else {
+                alert('未找到该城市，请尝试其他区域。');
+            }
+        });
+
+            document.getElementById('toggleChartType').addEventListener('click', () => {
+                currentChartType = currentChartType === 'bar' ? 'pie' : 'bar';
+                document.getElementById('toggleChartType').textContent = currentChartType === 'bar' ? '切换到饼状图' : '切换到柱状图';
+
+                populationChart.destroy();
+                areaChart.destroy();
+                gdpChart.destroy();
+
+                populationChart = new Chart(
+                    document.getElementById('populationChart').getContext('2d'), 
+                    createChartConfig('湛江市各地区人口情况', populationData, 
+                    '区县', '人口数', currentChartType));
+                areaChart = new Chart(
+                    document.getElementById('areaChart').getContext('2d'), 
+                    createChartConfig('湛江市各地区面积情况', areaData, 
+                    '区县', '面积（平方千米）', currentChartType));
+                gdpChart = new Chart(
+                    document.getElementById('gdpChart').getContext('2d'), 
+                    createChartConfig('湛江市各地区生产总值', gdpData, 
+                    '区县', 'GDP（亿元）', currentChartType));
+            });
+        });
+    </script>
+</body>
+</html>
